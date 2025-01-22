@@ -5,6 +5,7 @@ import { UsersService } from '@src/users/users.service';
 import { RolesService } from '@src/roles/roles.service';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { ProfilesService } from '@src/profiles/profiles.service';
 
 @Injectable()
 export class AuthService {
@@ -13,6 +14,7 @@ export class AuthService {
     private roleService: RolesService,
     private config: ConfigService,
     private jwt: JwtService,
+    private profilesService: ProfilesService,
   ) {}
 
   async login(dto: LoginDto) {
@@ -27,6 +29,10 @@ export class AuthService {
       email: dto.email,
       passwordHash: hash,
       roleId: role.id,
+    });
+
+    await this.profilesService.initializeProfile({
+      userId: user.id,
     });
 
     return this.generateToken(user.id, user.email);
