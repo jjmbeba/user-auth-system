@@ -1,56 +1,97 @@
-import { Injectable } from '@nestjs/common';
-import { LoginDto, RegisterDto } from '@src/auth/dto';
-import * as argon from 'argon2';
-import { UsersService } from '@src/users/users.service';
-import { RolesService } from '@src/roles/roles.service';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { ProfilesService } from '@src/profiles/profiles.service';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import { LoginDto, RegisterDto } from '@src/auth/dto';
+import { PrismaService } from '@src/prisma/prisma.service';
+import { RolesService } from '@src/roles/roles.service';
+import { UsersService } from '@src/users/users.service';
+import * as argon from 'argon2';
 
 @Injectable()
 export class AuthService {
   constructor(
-    private userService: UsersService,
-    private roleService: RolesService,
+    private prisma: PrismaService,
+    private usersService: UsersService,
+    private rolesService: RolesService,
+    private jwtService: JwtService,
     private config: ConfigService,
-    private jwt: JwtService,
-    private profilesService: ProfilesService,
-  ) {}
+  ) { }
 
-  async login(dto: LoginDto) {
-    return 'Login';
+  async validateUser(email: string, password: string) {
+    const user = await this.usersService.getUserByEmail(email);
+
+    if (!user) throw new BadRequestException('User credentials invalid');
+
+    const passwordsMatch = await argon.verify(user.passwordHash, password);
+
+    if (!passwordsMatch)
+      throw new BadRequestException('User credentials invalid');
+
+    delete user.passwordHash;
+
+    return user;
   }
 
-  async register(dto: RegisterDto) {
-    const hash = await argon.hash(dto.password);
-    const role = await this.roleService.getRoleByName('user');
-
-    const user = await this.userService.createUser({
-      email: dto.email,
-      passwordHash: hash,
-      roleId: role.id,
-    });
-
-    await this.profilesService.initializeProfile({
-      userId: user.id,
-    });
+  async login(loginDto: LoginDto) {
+    const user = await this.validateUser(loginDto.email, loginDto.password);
 
     return this.generateToken(user.id, user.email);
   }
 
-  async generateToken(userId: string, email: string) {
+  async register(registerDto: RegisterDto) {
+    const passwordHash = await argon.hash(registerDto.password);
+
+    try {
+      const { id: roleId } = await this.rolesService.getRoleByName('user');
+      const newUser = await this.prisma.$transaction(async () => {
+        const user = await this.prisma.user.create({
+          data: {
+            email: registerDto.email,
+            passwordHash,
+            roleId,
+          },
+        });
+
+        const newProfile = await this.prisma.profile.create({
+          data: {
+            userId: user.id,
+          }
+        })
+
+        return user;
+      })
+      return this.generateToken(
+        newUser.id,
+        newUser.email,
+      );
+    } catch (error) {
+      if (error instanceof PrismaClientKnownRequestError) {
+        if (error.code === 'P2002') {
+          throw new ForbiddenException('User already exists');
+        }
+      }
+
+      console.error('Error during user registration:', error);
+      throw error;
+    }
+  }
+
+  async generateToken(userId: string, email: string): Promise<{ access_token: string }> {
     const payload = {
       sub: userId,
       email,
     };
 
-    const token = await this.jwt.signAsync(payload, {
-      expiresIn: '1h',
-      secret: this.config.get('JWT_SECRET'),
-    });
-
     return {
-      access_token: token,
+      access_token: await this.jwtService.signAsync(payload, {
+        expiresIn: '1h',
+        secret: this.config.get('JWT_SECRET'),
+      }),
     };
   }
 }

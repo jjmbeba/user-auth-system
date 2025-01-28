@@ -1,4 +1,13 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { User } from '@prisma/client';
+import { GetUser } from '@src/auth/decorators';
+import { JwtAuthGuard } from '@src/auth/guards';
 
-@Controller('profiles')
-export class ProfilesController {}
+@UseGuards(JwtAuthGuard)
+@Controller('profile')
+export class ProfilesController {
+    @Get()
+    async getProfile(@GetUser() user: User) {
+        return user;
+    }
+}
