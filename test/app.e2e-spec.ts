@@ -4,6 +4,7 @@ import { LoginDto, RegisterDto } from "@src/auth/dto";
 import { PrismaService } from "@src/prisma/prisma.service";
 import * as pactum from 'pactum';
 import { AppModule } from "../src/app.module";
+import { EditProfileDto } from "@src/profiles/dto";
 
 describe('NestJs tutorial end-to-end testing', () => {
   let app: INestApplication;
@@ -91,17 +92,11 @@ describe('NestJs tutorial end-to-end testing', () => {
         }).expectStatus(400);
       });
       it("Should login with valid credentials", () => {
-        return pactum.spec().post('/auth/login').withBody(loginDto).expectStatus(200);
+        return pactum.spec().post('/auth/login').withBody(loginDto).expectStatus(200).stores('user_access_token', 'access_token');
       });
     })
   });
 
-  describe("Users", () => {
-    it.todo("Should get all users");
-    it.todo("Should get a user by id");
-    it.todo("Should update a user");
-    it.todo("Should delete a user");
-  });
 
   describe("Roles", () => {
     it.todo("Should get all roles");
@@ -111,9 +106,44 @@ describe('NestJs tutorial end-to-end testing', () => {
   });
 
   describe("Profiles", () => {
-    it.todo("Should get all profiles");
-    it.todo("Should get a profile by id");
-    it.todo("Should update a profile");
-    it.todo("Should delete a profile");
+    const editProfileDto: EditProfileDto = {
+      bio:"I am a bio",
+      image:"https://example.com/image.jpg"
+    }
+
+    it("Should not get the current user's profile without a token", () => {
+      return pactum.spec().get('/profile').expectStatus(401);
+    })
+
+    it("Should get the current user's profile", () => {
+      return pactum.spec().get('/profile').withHeaders({
+        Authorization: `Bearer $S{user_access_token}`
+      }).expectStatus(200);
+    });
+
+    it("Should not update the current user's profile without a token", () => {
+      return pactum.spec().patch('/profile').withBody(editProfileDto).expectStatus(401);
+    });
+
+    it("Should update the current user's profile", () => {
+      return pactum.spec().patch('/profile').withBody(editProfileDto).withHeaders({
+        Authorization: `Bearer $S{user_access_token}`
+      }).expectStatus(200);
+    });
+  });
+
+  describe("Users", () => {
+    it.todo("Should get all users");
+    it.todo("Should get a user by id");
+    it.todo("Should update a user");
+    it("Should throw an error if the unauthenticated user tries to delete an account", () => {
+      return pactum.spec().delete('/user').withHeaders({}).expectStatus(401);
+    });
+
+    it("Should delete the current user if authenticated", () => {
+      return pactum.spec().delete('/users').withHeaders({
+        Authorization : `Bearer $S{user_access_token}`
+      }).expectStatus(200);
+    })
   });
 })
